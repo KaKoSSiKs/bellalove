@@ -1,67 +1,72 @@
-import { useEffect, useRef } from 'react'
+import { useEffect } from 'react'
 import { Howl } from 'howler'
 import { useMusicStore } from '../store/useMusicStore'
 import { audioSrc } from '../data/audioSrc'
 
+// Global singleton to prevent duplicate instances
+let backgroundMusic: Howl | null = null
+
 export function useMusic() {
   const { isPlaying, volume } = useMusicStore()
-  const howlRef = useRef<Howl | null>(null)
 
   useEffect(() => {
-    // Prevent duplicate initialization
-    if (howlRef.current) return
+    // 1. Initialize if not exists
+    if (!backgroundMusic) {
+      const src = audioSrc[0]
+      if (!src) return
 
-    const src = audioSrc[0]
-    if (!src) return
+      backgroundMusic = new Howl({
+        src: [src],
+        html5: true, // Required for large audio files to stream/buffer
+        loop: true,
+        volume: volume,
+        autoplay: false,
+        preload: true,
+      })
+    }
 
-    const howl = new Howl({
-      src: [src],
-      html5: true,
-      loop: true,
-      volume: volume,
-      autoplay: true,
-      onplayerror: function() {
-        howl.once('unlock', function() {
-          howl.play()
-        })
-      }
-    })
-
-    howlRef.current = howl
-
-    // Robust unlock handler
-    const unlock = () => {
-      if (howlRef.current && !howlRef.current.playing()) {
-        howlRef.current.play()
+    // 2. Unlock handler for mobile (touchstart/click)
+    const unlockAudio = () => {
+      if (backgroundMusic && !backgroundMusic.playing() && useMusicStore.getState().isPlaying) {
+        backgroundMusic.play()
       }
     }
 
-    document.addEventListener('click', unlock)
-    document.addEventListener('touchstart', unlock)
-    document.addEventListener('keydown', unlock)
+    // 3. Attach listeners
+    document.addEventListener('click', unlockAudio)
+    document.addEventListener('touchstart', unlockAudio)
+    document.addEventListener('keydown', unlockAudio)
 
+    // 4. Initial play attempt
+    if (isPlaying && backgroundMusic && !backgroundMusic.playing()) {
+      backgroundMusic.play()
+    }
+
+    // Cleanup listeners only (keep music instance alive)
     return () => {
-      document.removeEventListener('click', unlock)
-      document.removeEventListener('touchstart', unlock)
-      document.removeEventListener('keydown', unlock)
-      howl.unload()
+      document.removeEventListener('click', unlockAudio)
+      document.removeEventListener('touchstart', unlockAudio)
+      document.removeEventListener('keydown', unlockAudio)
     }
   }, [])
 
-  // Sync volume
+  // Sync volume changes
   useEffect(() => {
-    if (howlRef.current) {
-      howlRef.current.volume(volume)
+    if (backgroundMusic) {
+      backgroundMusic.volume(volume)
     }
   }, [volume])
 
-  // Sync play/pause
+  // Sync play/pause state
   useEffect(() => {
-    if (!howlRef.current) return
+    if (!backgroundMusic) return
+
     if (isPlaying) {
-      if (!howlRef.current.playing()) howlRef.current.play()
+      if (!backgroundMusic.playing()) {
+        backgroundMusic.play()
+      }
     } else {
-      howlRef.current.pause()
+      backgroundMusic.pause()
     }
   }, [isPlaying])
 }
